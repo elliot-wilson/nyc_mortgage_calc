@@ -7,6 +7,9 @@ with app.setup(hide_code=True):
     from collections.abc import Callable
     from typing import Literal
 
+    # The static site installs only packages the notebook imports, so import
+    # paste_box's dependency here for it to be available there.
+    import anywidget  # noqa: F401  # pyright: ignore[reportUnusedImport]
     import marimo as mo
 
     from affordability import (
@@ -18,7 +21,9 @@ with app.setup(hide_code=True):
         evaluate,
         max_affordable_price,
     )
+    from listing import Listing, parse_listing
     from nys_tax import MFJ_2026 as NY_MFJ_2026
+    from paste_box import PasteBox
     from retirement_401k import employee_deferral
 
     CardKind = Literal["neutral", "success", "warn", "danger"]
@@ -97,6 +102,25 @@ def _(spouse_1_inputs: mo.ui.dictionary, spouse_2_inputs: mo.ui.dictionary):
 
 @app.cell(hide_code=True)
 def _(reset_button: mo.ui.button):
+    _ = reset_button  # rerun on reset, clearing the pasted listing
+    listing_paste: mo.ui.anywidget = mo.ui.anywidget(
+        PasteBox(
+            placeholder="On a StreetEasy listing, press Cmd+A then Cmd+C, then paste here"
+        )
+    )
+    return (listing_paste,)
+
+
+@app.cell(hide_code=True)
+def _(listing_paste: mo.ui.anywidget):
+    # The inputs it fills take these as their defaults, so they stay editable.
+    listing_text: str = listing_paste.value.get("text", "")
+    listing: Listing = parse_listing(listing_text)
+    return listing, listing_text
+
+
+@app.cell(hide_code=True)
+def _(reset_button: mo.ui.button):
     _ = reset_button  # rerun on reset, recreating these inputs at their defaults
     upfront_cash: mo.ui.number = mo.ui.number(
         start=300_000,
@@ -122,6 +146,7 @@ def _(reset_button: mo.ui.button):
     health_insurance: mo.ui.number = mo.ui.number(
         start=0,
         step=1,
+        value=600,
         label="Health insurance",
     )
     # The common 1%-a-year rule is for houses. In a condo or co-op the monthly
@@ -141,15 +166,6 @@ def _(reset_button: mo.ui.button):
 @app.cell(hide_code=True)
 def _(reset_button: mo.ui.button):
     _ = reset_button  # rerun on reset, recreating these inputs at their defaults
-    home_price: mo.ui.slider = mo.ui.slider(
-        start=0,
-        stop=2_000_000,
-        step=10_000,
-        value=1_250_000,
-        include_input=True,
-        label="Home price",
-    )
-
     down_payment_input_percentage: mo.ui.slider = mo.ui.slider(
         start=MIN_DOWN_PAYMENT_SHARE * 100,
         stop=50,
@@ -184,25 +200,40 @@ def _(reset_button: mo.ui.button):
         down_payment_display,
         down_payment_input_amount,
         down_payment_input_percentage,
-        home_price,
         mortgage_rate,
     )
 
 
 @app.cell(hide_code=True)
-def _(reset_button: mo.ui.button):
+def _(listing: Listing, reset_button: mo.ui.button):
+    _ = reset_button  # rerun on reset, recreating this input at its default
+    _price = listing.price or 1_200_000
+    home_price: mo.ui.slider = mo.ui.slider(
+        start=0,
+        stop=max(2_000_000, _price),
+        step=1_000,  # fine enough to hold a listing's exact price
+        value=_price,
+        include_input=True,
+        label="Home price",
+    )
+    return (home_price,)
+
+
+@app.cell(hide_code=True)
+def _(listing: Listing, reset_button: mo.ui.button):
     _ = reset_button  # rerun on reset, recreating these inputs at their defaults
     building_type: mo.ui.radio = mo.ui.radio(
-        options=["Condo", "Co-op"], value="Condo", inline=True
+        options=["Condo", "Co-op"], value=listing.building_type or "Condo", inline=True
     )
 
+    _fees = listing.monthly_fees or 1_000
     condo_or_coop_fees: mo.ui.slider = mo.ui.slider(
         start=0,
-        stop=5_000,
+        stop=max(5_000, _fees),
         step=1,
         include_input=True,
         label="Condo or co-op fees (monthly)",
-        value=1000,
+        value=_fees,
     )
 
     property_tax_input_percentage: mo.ui.slider = mo.ui.slider(
@@ -214,11 +245,12 @@ def _(reset_button: mo.ui.button):
         label="Property tax (annual % of price)",
     )
 
+    _taxes = listing.monthly_taxes or 950
     property_tax_input_amount: mo.ui.slider = mo.ui.slider(
         start=0,
-        stop=5_000,
+        stop=max(5_000, _taxes),
         step=1,
-        value=950,
+        value=_taxes,
         include_input=True,
         label="Property tax (monthly)",
     )
@@ -226,6 +258,18 @@ def _(reset_button: mo.ui.button):
     property_tax_display: mo.ui.radio = mo.ui.radio(
         options=["Percentage", "Amount"], value="Amount", inline=True
     )
+    return (
+        building_type,
+        condo_or_coop_fees,
+        property_tax_display,
+        property_tax_input_amount,
+        property_tax_input_percentage,
+    )
+
+
+@app.cell(hide_code=True)
+def _(reset_button: mo.ui.button):
+    _ = reset_button  # rerun on reset, recreating these inputs at their defaults
 
     # Shown on the co-op's year-end letter; deductible like mortgage interest.
     coop_interest_portion: mo.ui.slider = mo.ui.slider(
@@ -246,15 +290,7 @@ def _(reset_button: mo.ui.button):
         include_input=True,
         label="Insurance (monthly)",
     )
-    return (
-        building_type,
-        condo_or_coop_fees,
-        coop_interest_portion,
-        homeowners_insurance,
-        property_tax_display,
-        property_tax_input_amount,
-        property_tax_input_percentage,
-    )
+    return coop_interest_portion, homeowners_insurance
 
 
 @app.cell(hide_code=True)
@@ -515,7 +551,8 @@ def _(
                 "emergency funds, which stay untouched.  \n"
                 "† Assumes the tax savings from itemizing arrive in each paycheck. "
                 "In practice, the tax savings may arrive in a refund, making monthly "
-                "budgeting a little tighter."
+                "budgeting a little tighter. Also assumes that monthly expenses are ONLY "
+                "paid out of monthly wages, not with excess cash on hand (such as leftover savings post-closing)."
             ).style(font_size="0.85rem", color="var(--muted-foreground, gray)"),
             mo.md("### How high can we go?"),
             mo.md("\n".join(_price_lines)),
@@ -538,12 +575,69 @@ def _(
     home: Home,
     home_price: mo.ui.slider,
     homeowners_insurance: mo.ui.slider,
+    listing: Listing,
+    listing_paste: mo.ui.anywidget,
+    listing_text: str,
     mortgage_rate: mo.ui.slider,
     property_tax_display: mo.ui.radio,
     property_tax_input_amount: mo.ui.slider,
     property_tax_input_percentage: mo.ui.slider,
     result: Result,
 ):
+    _fees_label = (
+        "maintenance" if listing.building_type == "Co-op" else "common charges"
+    )
+    _found = [
+        *([f"\\${listing.price:,}"] if listing.price else []),
+        *([listing.building_type] if listing.building_type else []),
+        *(
+            [f"\\${listing.monthly_fees:,}/mo {_fees_label}"]
+            if listing.monthly_fees
+            else []
+        ),
+        *([f"\\${listing.monthly_taxes:,}/mo taxes"] if listing.monthly_taxes else []),
+    ]
+    _missing = [
+        name
+        for name, value in [
+            ("price", listing.price),
+            ("building type", listing.building_type),
+            (_fees_label, listing.monthly_fees),
+            # Co-op listings fold taxes into maintenance.
+            *(
+                []
+                if listing.building_type == "Co-op"
+                else [("taxes", listing.monthly_taxes)]
+            ),
+        ]
+        if not value
+    ]
+    if not listing_text.strip():
+        _listing_note = None
+    elif listing.is_empty:
+        _listing_note = mo.callout(
+            mo.md("Couldn't find a price, fees, or taxes in that text."), kind="warn"
+        )
+    else:
+        _listing_note = mo.callout(
+            mo.vstack(
+                [
+                    mo.md(f"**{listing.address or 'Pasted listing'}**"),
+                    mo.md(" · ".join(_found)),
+                    mo.md(
+                        (
+                            f"Not found: {', '.join(_missing)}; kept the current values. "
+                            if _missing
+                            else ""
+                        )
+                        + "Filled in below, where you can adjust them."
+                    ).style(font_size="0.8rem", color="var(--muted-foreground, gray)"),
+                ],
+                gap=0.25,
+            ),
+            kind="info",
+        )
+
     if result.down_payment_raised:
         _down_payment_note = (
             f"Below the {MIN_DOWN_PAYMENT_SHARE:.0%} minimum, so using "
@@ -566,6 +660,8 @@ def _(
 
     housing_panel: mo.Html = mo.vstack(
         [
+            listing_paste,
+            *([_listing_note] if _listing_note else []),
             home_price,
             mo.hstack(
                 ["Down payment", down_payment_display], justify="start", align="end"

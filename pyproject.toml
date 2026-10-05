@@ -5,6 +5,7 @@ description = "Home affordability calculator for an NYC condo or co-op purchase,
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "anywidget>=0.11.0",
     "marimo>=0.25.1",
 ]
 
@@ -14,6 +15,7 @@ custom_css = ["custom.css"]
 [dependency-groups]
 dev = [
     "pyright>=1.1.414",
+    "pytest>=9.1.1",
 ]
 
 [tool.pyright]
@@ -29,8 +31,10 @@ strict = [
     "fed_tax.py",
     "fica_tax.py",
     "household_tax.py",
+    "listing.py",
     "mortgage.py",
     "nyc_tax.py",
     "nys_tax.py",
+    "paste_box.py",
     "retirement_401k.py",
 ]

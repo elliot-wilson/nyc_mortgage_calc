@@ -18,6 +18,12 @@ Use `uv run marimo edit app.py` to change the notebook.
 uv run marimo check --fix app.py && uv run pyright
 ```
 
+## Tests
+
+```bash
+uv run pytest
+```
+
 Pyright fails on any untyped parameter, including notebook cell parameters. Annotate every
 value shared between cells where it's defined (e.g. `result: Result = evaluate(...)`) and
 marimo writes that type into the signature of each cell that uses it. It does this when
@@ -50,6 +56,8 @@ Actions**. Pages on a free GitHub account requires a public repository.
 | `app.py` | The notebook: inputs in the sidebar, results in the main column |
 | `affordability.py` | Evaluates a purchase (payment, closing cash, taxes, verdicts) and searches for the maximum affordable price; the green/yellow/red thresholds live here |
 | `household_tax.py` | Federal, NYS, and NYC income tax plus FICA for the household, including the housing deductions |
+| `listing.py` | Reads the price, fees, and taxes from a StreetEasy listing's copied page text |
+| `paste_box.py` | The paste target for listings: sends pasted text to the notebook without showing it |
 | `closing_costs.py` | NYS mansion tax and NYC mortgage recording tax |
 | `mortgage.py` | Monthly payment and first-year interest for a 30-year fixed loan |
 | `fed_tax.py`, `nys_tax.py`, `nyc_tax.py`, `fica_tax.py`, `retirement_401k.py` | 2026 tax schedules and limits for married filing jointly |
