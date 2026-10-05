@@ -51,7 +51,7 @@ with app.setup(hide_code=True):
         down_payment_display: Display = "Percentage"
         down_payment_percent: float = 20
         down_payment_amount: int = 250_000
-        mortgage_rate: float = 7.25
+        mortgage_rate: float = 7.50
         building_type: BuildingType = "Condo"
         monthly_fees: int = 1_000
         property_tax_display: Display = "Amount"
@@ -674,7 +674,10 @@ def _(
     # Two cards per row, matching the rows above; an odd one out gets a blank
     # partner so it keeps the same width.
     _ratio_rows = [
-        _row(*_ratio_cards[i : i + 2], *([mo.Html("")] if i + 1 == len(_ratio_cards) else []))
+        _row(
+            *_ratio_cards[i : i + 2],
+            *([mo.Html("")] if i + 1 == len(_ratio_cards) else []),
+        )
         for i in range(0, len(_ratio_cards), 2)
     ]
 
