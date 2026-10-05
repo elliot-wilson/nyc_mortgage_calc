@@ -5,6 +5,7 @@ app = marimo.App(width="medium", app_title="Can we afford it?")
 
 with app.setup(hide_code=True):
     from collections.abc import Callable
+    from dataclasses import dataclass
     from typing import Literal
 
     # The static site installs only packages the notebook imports, so import
@@ -21,12 +22,37 @@ with app.setup(hide_code=True):
         evaluate,
         max_affordable_price,
     )
-    from listing import Listing, parse_listing
+    from listing import BuildingType, Listing, parse_listing
     from nys_tax import MFJ_2026 as NY_MFJ_2026
     from paste_box import PasteBox
     from retirement_401k import employee_deferral
 
     CardKind = Literal["neutral", "success", "warn", "danger"]
+    Display = Literal["Percentage", "Amount"]
+
+    @dataclass(frozen=True)
+    class Defaults:
+        """Starting values, reset if Reset button is clicked."""
+
+        spouse_1_wages: int = 220_000
+        spouse_2_wages: int = 0
+        contribution_percent: float = 8
+        available_cash: int = 340_000
+        monthly_expenses: int = 3_500
+        health_insurance: int = 600
+        upkeep_percent: float = 0.5
+        home_price: int = 1_200_000
+        down_payment_display: Display = "Percentage"
+        down_payment_percent: float = 20
+        down_payment_amount: int = 250_000
+        mortgage_rate: float = 7.25
+        building_type: BuildingType = "Condo"
+        monthly_fees: int = 1_000
+        property_tax_display: Display = "Amount"
+        property_tax_percent: float = 0.9
+        property_tax_monthly: int = 950
+        coop_interest_monthly: int = 250
+        insurance_monthly: int = 50
 
     def number(value: object) -> float:
         """A numeric UI value as a float; an emptied number field reads as None."""
@@ -39,8 +65,6 @@ with app.setup(hide_code=True):
 
 @app.cell(hide_code=True)
 def _():
-    # Every cell that creates inputs references this button, so clicking it
-    # reruns those cells and recreates each input at its default.
     reset_button: mo.ui.button = mo.ui.button(
         value=0,
         on_click=lambda count: count + 1,
@@ -52,16 +76,23 @@ def _():
 
 @app.cell(hide_code=True)
 def _(reset_button: mo.ui.button):
-    _ = reset_button  # rerun on reset, recreating these inputs at their defaults
+    # Every cell that creates inputs reads these, so clicking Reset reruns this
+    # cell, then those, recreating each input at its default.
+    _ = reset_button
+    defaults: Defaults = Defaults()
+    return (defaults,)
 
-    def _wage_inputs(default_income_value: int) -> mo.ui.dictionary:
+
+@app.cell(hide_code=True)
+def _(defaults: Defaults):
+    def _wage_inputs(wages: int) -> mo.ui.dictionary:
         return mo.ui.dictionary(
             {
                 "income": mo.ui.slider(
                     start=0,
                     stop=600_000,
                     step=10_000,
-                    value=default_income_value,
+                    value=wages,
                     include_input=True,
                     label="Annual wages",
                 ),
@@ -69,15 +100,15 @@ def _(reset_button: mo.ui.button):
                     start=0,
                     stop=50,
                     step=0.5,
-                    value=8,
+                    value=defaults.contribution_percent,
                     include_input=True,
                     label="401(k) contribution (% of gross)",
                 ),
             }
         )
 
-    spouse_1_inputs: mo.ui.dictionary = _wage_inputs(default_income_value=220_000)
-    spouse_2_inputs: mo.ui.dictionary = _wage_inputs(default_income_value=0)
+    spouse_1_inputs: mo.ui.dictionary = _wage_inputs(defaults.spouse_1_wages)
+    spouse_2_inputs: mo.ui.dictionary = _wage_inputs(defaults.spouse_2_wages)
     return spouse_1_inputs, spouse_2_inputs
 
 
@@ -101,8 +132,8 @@ def _(spouse_1_inputs: mo.ui.dictionary, spouse_2_inputs: mo.ui.dictionary):
 
 
 @app.cell(hide_code=True)
-def _(reset_button: mo.ui.button):
-    _ = reset_button  # rerun on reset, clearing the pasted listing
+def _(defaults: Defaults):
+    _ = defaults  # rerun on reset, clearing the pasted listing
     listing_paste: mo.ui.anywidget = mo.ui.anywidget(
         PasteBox(
             placeholder="On a StreetEasy listing, press Cmd+A then Cmd+C, then paste here"
@@ -120,43 +151,38 @@ def _(listing_paste: mo.ui.anywidget):
 
 
 @app.cell(hide_code=True)
-def _(reset_button: mo.ui.button):
-    _ = reset_button  # rerun on reset, recreating these inputs at their defaults
+def _(defaults: Defaults):
     upfront_cash: mo.ui.number = mo.ui.number(
         start=300_000,
         step=1_000,
         stop=500_000,
-        value=340_000,
+        value=defaults.available_cash,
         label="Available cash",
     )
     return (upfront_cash,)
 
 
 @app.cell(hide_code=True)
-def _(reset_button: mo.ui.button):
-    _ = reset_button  # rerun on reset, recreating these inputs at their defaults
+def _(defaults: Defaults):
     monthly_expenses: mo.ui.slider = mo.ui.slider(
         start=2_000,
         step=100,
         stop=10_000,
-        value=3_500,
+        value=defaults.monthly_expenses,
         include_input=True,
         label="Monthly expenses",
     )
     health_insurance: mo.ui.number = mo.ui.number(
         start=0,
         step=1,
-        value=600,
+        value=defaults.health_insurance,
         label="Health insurance",
     )
-    # The common 1%-a-year rule is for houses. In a condo or co-op the monthly
-    # fees cover the building and big projects come as assessments, so we only
-    # save for the unit's interior: roughly 0.5%.
     upkeep: mo.ui.slider = mo.ui.slider(
         start=0,
         stop=3,
         step=0.1,
-        value=0.5,
+        value=defaults.upkeep_percent,
         include_input=True,
         label="Upkeep (% of price/yr)",
     )
@@ -164,13 +190,12 @@ def _(reset_button: mo.ui.button):
 
 
 @app.cell(hide_code=True)
-def _(reset_button: mo.ui.button):
-    _ = reset_button  # rerun on reset, recreating these inputs at their defaults
+def _(defaults: Defaults):
     down_payment_input_percentage: mo.ui.slider = mo.ui.slider(
         start=MIN_DOWN_PAYMENT_SHARE * 100,
         stop=50,
         step=0.5,
-        value=20,
+        value=defaults.down_payment_percent,
         include_input=True,
         label="Down payment (% of price)",
     )
@@ -179,13 +204,15 @@ def _(reset_button: mo.ui.button):
         start=0,
         stop=2_000_000,
         step=10_000,
-        value=250_000,
+        value=defaults.down_payment_amount,
         include_input=True,
         label="Down payment (amount)",
     )
 
     down_payment_display: mo.ui.radio = mo.ui.radio(
-        options=["Percentage", "Amount"], value="Percentage", inline=True
+        options=["Percentage", "Amount"],
+        value=defaults.down_payment_display,
+        inline=True,
     )
 
     mortgage_rate: mo.ui.slider = mo.ui.slider(
@@ -194,7 +221,7 @@ def _(reset_button: mo.ui.button):
         step=0.125,
         include_input=True,
         label="Mortgage rate",
-        value=7.25,
+        value=defaults.mortgage_rate,
     )
     return (
         down_payment_display,
@@ -205,9 +232,8 @@ def _(reset_button: mo.ui.button):
 
 
 @app.cell(hide_code=True)
-def _(listing: Listing, reset_button: mo.ui.button):
-    _ = reset_button  # rerun on reset, recreating this input at its default
-    _price = listing.price or 1_200_000
+def _(defaults: Defaults, listing: Listing):
+    _price = listing.price or defaults.home_price
     home_price: mo.ui.slider = mo.ui.slider(
         start=0,
         stop=max(2_000_000, _price),
@@ -220,13 +246,14 @@ def _(listing: Listing, reset_button: mo.ui.button):
 
 
 @app.cell(hide_code=True)
-def _(listing: Listing, reset_button: mo.ui.button):
-    _ = reset_button  # rerun on reset, recreating these inputs at their defaults
+def _(defaults: Defaults, listing: Listing):
     building_type: mo.ui.radio = mo.ui.radio(
-        options=["Condo", "Co-op"], value=listing.building_type or "Condo", inline=True
+        options=["Condo", "Co-op"],
+        value=listing.building_type or defaults.building_type,
+        inline=True,
     )
 
-    _fees = listing.monthly_fees or 1_000
+    _fees = listing.monthly_fees or defaults.monthly_fees
     condo_or_coop_fees: mo.ui.slider = mo.ui.slider(
         start=0,
         stop=max(5_000, _fees),
@@ -240,12 +267,12 @@ def _(listing: Listing, reset_button: mo.ui.button):
         start=0,
         stop=3,
         step=0.05,
-        value=0.9,
+        value=defaults.property_tax_percent,
         include_input=True,
         label="Property tax (annual % of price)",
     )
 
-    _taxes = listing.monthly_taxes or 950
+    _taxes = listing.monthly_taxes or defaults.property_tax_monthly
     property_tax_input_amount: mo.ui.slider = mo.ui.slider(
         start=0,
         stop=max(5_000, _taxes),
@@ -256,7 +283,9 @@ def _(listing: Listing, reset_button: mo.ui.button):
     )
 
     property_tax_display: mo.ui.radio = mo.ui.radio(
-        options=["Percentage", "Amount"], value="Amount", inline=True
+        options=["Percentage", "Amount"],
+        value=defaults.property_tax_display,
+        inline=True,
     )
     return (
         building_type,
@@ -268,15 +297,13 @@ def _(listing: Listing, reset_button: mo.ui.button):
 
 
 @app.cell(hide_code=True)
-def _(reset_button: mo.ui.button):
-    _ = reset_button  # rerun on reset, recreating these inputs at their defaults
-
+def _(defaults: Defaults):
     # Shown on the co-op's year-end letter; deductible like mortgage interest.
     coop_interest_portion: mo.ui.slider = mo.ui.slider(
         start=0,
         stop=5_000,
         step=25,
-        value=250,
+        value=defaults.coop_interest_monthly,
         include_input=True,
         label="Co-op interest (monthly)",
     )
@@ -286,7 +313,7 @@ def _(reset_button: mo.ui.button):
         start=0,
         stop=500,
         step=5,
-        value=50,
+        value=defaults.insurance_monthly,
         include_input=True,
         label="Insurance (monthly)",
     )

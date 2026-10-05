@@ -1,5 +1,3 @@
-"""Evaluate a home purchase against the household's income, budget, and cash."""
-
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Literal
@@ -8,7 +6,7 @@ from closing_costs import mansion_tax, mortgage_recording_tax
 from household_tax import IncomeTaxes, fica_taxes, income_taxes
 from mortgage import first_year_interest, monthly_mortgage_payment
 
-MIN_DOWN_PAYMENT_SHARE = 0.20  # we won't put down less than 20%
+MIN_DOWN_PAYMENT_SHARE = 0.20  # you can't put down less than 20%
 
 # Leftover thresholds for the monthly indicator
 COMFORTABLE_LEFTOVER = 1_000  # at or above: green
