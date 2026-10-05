@@ -28,6 +28,9 @@ jobs:
           uv run --frozen marimo check app.py
           uv run --frozen pyright
 
+      - name: Test
+        run: uv run --frozen pytest
+
       - name: Export the notebook as a static site
         run: |
           uv run --frozen marimo export html-wasm app.py --output _site --mode run
