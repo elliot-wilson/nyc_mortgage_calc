@@ -395,13 +395,13 @@ def _(defaults: Defaults):
     # Labels live here rather than on the inputs so the display can align them
     # in a column.
     closing_labels: dict[str, str] = {
-        "buyer_attorney": "Our attorney",
+        "buyer_attorney": "Buyer's attorney",
         "lender_attorney": "Lender's attorney",
         "lender_fees": "Lender fees (application, appraisal, credit)",
         "building_fees": "Building fees",
         "recording_and_misc": "Recording, searches, and misc.",
         "points": "Points (% of loan)",
-        "buyer_broker": "Our broker (% of price)",
+        "buyer_broker": "Buyer's broker (% of price)",
         "title_insurance": "Title insurance (% of price)",
         "escrow_months": "Property tax escrow (months collected upfront)",
         "tax_adjustment_months": "Seller reimbursement: property tax (months)",
