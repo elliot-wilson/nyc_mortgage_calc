@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.25.1"
-app = marimo.App(width="medium", app_title="Can we afford it?")
+app = marimo.App(width="medium", app_title="Can you afford it?")
 
 with app.setup(hide_code=True):
     from collections.abc import Callable
@@ -382,7 +382,7 @@ def _(building_type: mo.ui.radio):
                 start=0, stop=12, step=1, value=6, full_width=True
             ),
             # NYC property tax is billed semiannually, so the seller may have
-            # prepaid months we'll own; same for the current month's fees.
+            # prepaid months you'll own; same for the current month's fees.
             "tax_adjustment_months": mo.ui.number(
                 start=0, stop=6, step=1, value=3, full_width=True
             ),
@@ -546,7 +546,7 @@ def _(
     _closing = result.closing_verdict
     mo.vstack(
         [
-            mo.md("# Can we afford it?"),
+            mo.md("# Can you afford it?"),
             _row(
                 _card(
                     _money(result.total_monthly_payment),
@@ -581,7 +581,7 @@ def _(
                 "budgeting a little tighter. Also assumes that monthly expenses are ONLY "
                 "paid out of monthly wages, not with excess cash on hand (such as leftover savings post-closing)."
             ).style(font_size="0.85rem", color="var(--muted-foreground, gray)"),
-            mo.md("### How high can we go?"),
+            mo.md("### How high can you go?"),
             mo.md("\n".join(_price_lines)),
             mo.md(_held_fixed).style(
                 font_size="0.85rem", color="var(--muted-foreground, gray)"
