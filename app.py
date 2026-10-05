@@ -107,7 +107,7 @@ def _(defaults: Defaults):
             {
                 "income": mo.ui.slider(
                     start=0,
-                    stop=1_000_000,
+                    stop=600_000,
                     step=10_000,
                     value=wages,
                     include_input=True,
