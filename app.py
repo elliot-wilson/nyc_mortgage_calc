@@ -499,7 +499,7 @@ def _(
             ),
             mo.md(
                 "\\* Available cash and cash left after closing exclude any "
-                "emergency funds, which stays untouched.  \n"
+                "emergency funds, which stay untouched.  \n"
                 "† Assumes the tax savings from itemizing arrive in each paycheck. "
                 "In practice, the tax savings may arrive in a refund, making monthly "
                 "budgeting a little tighter."
