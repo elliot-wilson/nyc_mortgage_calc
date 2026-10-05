@@ -1,3 +1,10 @@
 :host(marimo-slider[data-label*="Home price"]) .w-24 {
   width: 10rem;
 }
+
+/* marimo pads Markdown blocks; in the sidebar that indents titles and notes
+   past the inputs below them. */
+.app-sidebar .markdown {
+  padding-left: 0;
+  padding-right: 0;
+}

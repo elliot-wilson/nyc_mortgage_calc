@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.25.1"
-app = marimo.App(width="medium", app_title="Monthly Payment Calculator")
+app = marimo.App(width="medium", app_title="Can we afford it?")
 
 with app.setup(hide_code=True):
     from collections.abc import Callable
@@ -34,6 +34,21 @@ with app.setup(hide_code=True):
 
 @app.cell(hide_code=True)
 def _():
+    # Every cell that creates inputs references this button, so clicking it
+    # reruns those cells and recreates each input at its default.
+    reset_button: mo.ui.button = mo.ui.button(
+        value=0,
+        on_click=lambda count: count + 1,
+        label="::lucide:rotate-ccw:: Reset",
+        tooltip="Reset every input to its default",
+    )
+    return (reset_button,)
+
+
+@app.cell(hide_code=True)
+def _(reset_button: mo.ui.button):
+    _ = reset_button  # rerun on reset, recreating these inputs at their defaults
+
     def _wage_inputs(default_income_value: int) -> mo.ui.dictionary:
         return mo.ui.dictionary(
             {
@@ -53,11 +68,6 @@ def _():
                     include_input=True,
                     label="401(k) contribution (% of gross)",
                 ),
-                "other_pretax": mo.ui.number(
-                    start=0,
-                    step=1,
-                    label="Other pre-tax (HSA, FSA, etc.)",
-                ),
             }
         )
 
@@ -73,7 +83,6 @@ def _(spouse_1_inputs: mo.ui.dictionary, spouse_2_inputs: mo.ui.dictionary):
             [
                 inputs["income"],
                 inputs["contribution_percent"],
-                inputs["other_pretax"],
             ]
         )
 
@@ -87,7 +96,8 @@ def _(spouse_1_inputs: mo.ui.dictionary, spouse_2_inputs: mo.ui.dictionary):
 
 
 @app.cell(hide_code=True)
-def _():
+def _(reset_button: mo.ui.button):
+    _ = reset_button  # rerun on reset, recreating these inputs at their defaults
     upfront_cash: mo.ui.number = mo.ui.number(
         start=300_000,
         step=1_000,
@@ -99,7 +109,8 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _():
+def _(reset_button: mo.ui.button):
+    _ = reset_button  # rerun on reset, recreating these inputs at their defaults
     monthly_expenses: mo.ui.slider = mo.ui.slider(
         start=2_000,
         step=100,
@@ -117,7 +128,8 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _():
+def _(reset_button: mo.ui.button):
+    _ = reset_button  # rerun on reset, recreating these inputs at their defaults
     home_price: mo.ui.slider = mo.ui.slider(
         start=0,
         stop=2_000_000,
@@ -167,7 +179,8 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _():
+def _(reset_button: mo.ui.button):
+    _ = reset_button  # rerun on reset, recreating these inputs at their defaults
     building_type: mo.ui.radio = mo.ui.radio(
         options=["Condo", "Co-op"], value="Condo", inline=True
     )
@@ -235,7 +248,8 @@ def _():
 
 @app.cell(hide_code=True)
 def _(building_type: mo.ui.radio):
-    # Conservative (high-end) NYC defaults; they reset when the building type changes.
+    # Conservative (high-end) NYC defaults; they reset when the building type
+    # changes, including on a full reset (which recreates building_type).
     _defaults = (
         {
             "buyer_attorney": 5_000,
@@ -331,15 +345,14 @@ def _(
     def _wages(inputs: mo.ui.dictionary) -> dict[str, float]:
         values = inputs.value
         income = number(values["income"])
-        other_pretax = number(values["other_pretax"])
         contribution_401k = employee_deferral(
             income, percent=number(values["contribution_percent"])
         )
         return {
             "income": income,
             "contribution_401k": contribution_401k,
-            "pretax_deductions": contribution_401k + other_pretax,
-            "fica_wages": max(income - other_pretax, 0),
+            "pretax_deductions": contribution_401k,
+            "fica_wages": max(income - contribution_401k, 0),
         }
 
     _spouses = [_wages(spouse_1_inputs), _wages(spouse_2_inputs)]
@@ -485,8 +498,8 @@ def _(
                 ),
             ),
             mo.md(
-                "\\* Available cash and cash left after closing exclude our "
-                "emergency fund, which stays untouched.  \n"
+                "\\* Available cash and cash left after closing exclude any "
+                "emergency funds, which stays untouched.  \n"
                 "† Assumes the tax savings from itemizing arrive in each paycheck. "
                 "In practice, the tax savings may arrive in a refund, making monthly "
                 "budgeting a little tighter."
@@ -571,18 +584,30 @@ def _(
     housing_panel: mo.Html,
     income_panel: mo.ui.tabs,
     monthly_expenses: mo.ui.slider,
+    reset_button: mo.ui.button,
     upfront_cash: mo.ui.number,
 ):
     def _section(title: str, *items: object) -> mo.Html:
-        return mo.vstack([mo.md(f"**{title}**"), *items])
+        return mo.vstack([mo.md(f"**{title}**").style(margin_top="0.75rem"), *items])
+
+    _header = mo.hstack(
+        [mo.md("### Inputs"), reset_button],
+        justify="space-between",
+        align="center",
+    ).style(
+        border_bottom="1px solid var(--slate-6, #e2e8f0)",
+        padding_bottom="0.5rem",
+        margin_bottom="0.25rem",
+    )
 
     mo.sidebar(
         [
+            _header,
             _section("Annual income", income_panel),
             _section(
                 "Available cash",
                 mo.md(
-                    "Budget for down payment, closing costs, etc. Excludes the emergency fund, which we are not touching."
+                    "Budget for down payment, closing costs, etc. Excludes any emergency funds."
                 ).style(font_size="0.85rem"),
                 upfront_cash,
             ),
