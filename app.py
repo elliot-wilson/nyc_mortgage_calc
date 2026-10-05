@@ -543,6 +543,7 @@ def _(home: Home, household: Household):
     _checks: dict[str, Callable[[Result], Verdict]] = {
         "Monthly budget": lambda result: result.monthly_verdict,
         "Cash at closing": lambda result: result.closing_verdict,
+        "Lender debt-to-income": lambda result: result.lender_dti_verdict,
     }
     if not home.is_condo:
         _checks["Board debt-to-income"] = lambda result: result.board_dti_verdict
@@ -637,29 +638,45 @@ def _(
             "leftover savings post-closing)."
         ),
     ]
-    _board_row: list[mo.Html] = []
+    _ratio_cards = [
+        _verdict_card(
+            _ratio(result.dti, ".0%"),
+            "Lender debt-to-income‡",
+            result.lender_dti_verdict,
+        )
+    ]
+    _footnotes.append(
+        "‡ The monthly payment, plus any other debt payments, over gross income "
+        "the lender can verify as ongoing. Conforming loans usually allow up to "
+        "45%, or 50% with strong credit, reserves, or a large down payment; "
+        "jumbo loans usually stop at 43%."
+    )
     if not home.is_condo:
-        _board_row = [
-            _row(
-                _verdict_card(
-                    _ratio(result.board_dti, ".0%"),
-                    "Board debt-to-income‡",
-                    result.board_dti_verdict,
-                ),
-                _verdict_card(
-                    _ratio(result.liquidity_months, ".0f", " months"),
-                    "Liquidity after closing‡",
-                    result.liquidity_verdict,
-                ),
-            )
+        _ratio_cards += [
+            _verdict_card(
+                _ratio(result.dti, ".0%"),
+                "Board debt-to-income§",
+                result.board_dti_verdict,
+            ),
+            _verdict_card(
+                _ratio(result.liquidity_months, ".0f", " months"),
+                "Liquidity after closing§",
+                result.liquidity_verdict,
+            ),
         ]
         _footnotes.append(
-            "‡ Co-op boards set their own limits. Most want the monthly payment "
+            "§ Co-op boards set their own limits. Most want the monthly payment "
             "to be at most 25–30% of gross income, counting any other debt "
             "payments too, and liquid savings after closing, including the "
             "emergency fund, to cover 1–2 years of payments. Many don't count "
             "retirement accounts, and some are stricter."
         )
+    # Two cards per row, matching the rows above; an odd one out gets a blank
+    # partner so it keeps the same width.
+    _ratio_rows = [
+        _row(*_ratio_cards[i : i + 2], *([mo.Html("")] if i + 1 == len(_ratio_cards) else []))
+        for i in range(0, len(_ratio_cards), 2)
+    ]
 
     mo.vstack(
         [
@@ -688,7 +705,7 @@ def _(
                     result.closing_verdict,
                 ),
             ),
-            *_board_row,
+            *_ratio_rows,
             mo.md("  \n".join(_footnotes)).style(
                 font_size="0.85rem", color="var(--muted-foreground, gray)"
             ),

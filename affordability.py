@@ -15,8 +15,13 @@ MINIMUM_LEFTOVER = 500  # below: red; in between: yellow
 # Cushion threshold for the closing cash indicator
 COMFORTABLE_CUSHION = 20_000  # at or above: green; below zero: red
 
+# Debt-to-income: the monthly payment as a share of gross monthly income.
+# Lenders: conforming loans usually allow up to 45%, or 50% with compensating
+# factors like strong credit or large reserves; 43% is the safe rule of thumb.
+COMFORTABLE_LENDER_DTI = 0.43  # at or below: green
+MAX_LENDER_DTI = 0.50  # above: red; in between: yellow
+
 # Co-op board thresholds. Boards set their own, but most land in these ranges.
-# Debt-to-income: the housing payment as a share of gross income.
 COMFORTABLE_BOARD_DTI = 0.25  # at or below: green
 MAX_BOARD_DTI = 0.30  # above: red; in between: yellow
 # Liquidity: savings left after closing, in months of housing payments.
@@ -110,7 +115,7 @@ class Result:
     monthly_net: float
     monthly_leftover: float
     closing_cushion: float
-    board_dti: float  # housing payment over gross income
+    dti: float  # monthly payment over gross monthly income
     liquidity_months: float  # liquid savings after closing, in housing payments
 
     @property
@@ -138,10 +143,18 @@ class Result:
         return Verdict("danger", "Not affordable")
 
     @property
+    def lender_dti_verdict(self) -> Verdict:
+        if self.dti <= COMFORTABLE_LENDER_DTI:
+            return Verdict("success", "Meets most lenders")
+        if self.dti <= MAX_LENDER_DTI:
+            return Verdict("warn", "Needs a strong application")
+        return Verdict("danger", "Above lenders' limit")
+
+    @property
     def board_dti_verdict(self) -> Verdict:
-        if self.board_dti <= COMFORTABLE_BOARD_DTI:
+        if self.dti <= COMFORTABLE_BOARD_DTI:
             return Verdict("success", "Meets most boards")
-        if self.board_dti <= MAX_BOARD_DTI:
+        if self.dti <= MAX_BOARD_DTI:
             return Verdict("warn", "Meets lenient boards")
         return Verdict("danger", "Above most boards' limit")
 
@@ -284,7 +297,7 @@ def evaluate(household: Household, home: Home) -> Result:
         - monthly_upkeep
         - household.monthly_expenses,
         closing_cushion=cushion,
-        board_dti=(
+        dti=(
             total_monthly_payment / (household.gross_income / 12)
             if household.gross_income
             else float("inf")
