@@ -29,7 +29,7 @@ mode.
 
 | File | What it does |
 |---|---|
-| `monthly_income.py` | The notebook: inputs in the sidebar, results in the main column |
+| `app.py` | The notebook: inputs in the sidebar, results in the main column |
 | `affordability.py` | Evaluates a purchase (payment, closing cash, taxes, verdicts) and searches for the maximum affordable price; the green/yellow/red thresholds live here |
 | `household_tax.py` | Federal, NYS, and NYC income tax plus FICA for the household, including the housing deductions |
 | `closing_costs.py` | NYS mansion tax and NYC mortgage recording tax |
