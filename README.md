@@ -7,15 +7,15 @@ closing against your savings, and the highest price that keeps both comfortable.
 ## Running it
 
 ```bash
-uv run marimo run monthly_income.py
+uv run marimo run app.py
 ```
 
-Use `uv run marimo edit monthly_income.py` to change the notebook.
+Use `uv run marimo edit app.py` to change the notebook.
 
 ## Type checking
 
 ```bash
-uv run marimo check --fix monthly_income.py && uv run pyright
+uv run marimo check --fix app.py && uv run pyright
 ```
 
 Pyright fails on any untyped parameter, including notebook cell parameters. Annotate every
@@ -24,6 +24,24 @@ marimo writes that type into the signature of each cell that uses it. It does th
 saving from the editor or on `marimo check --fix`. Imports live in the notebook's
 `app.setup` block so those annotations resolve. The plain modules are checked in strict
 mode.
+
+## Publishing
+
+Every push to `main` publishes the notebook to GitHub Pages as a static, interactive site
+(`.github/workflows/pages.yml`). The workflow type-checks the code, then runs
+`marimo export html-wasm`, which runs the Python in the browser via Pyodide, so there's
+no server and inputs never leave the visitor's browser. The default input values are
+visible to anyone with the link.
+
+To preview the site locally:
+
+```bash
+uv run marimo export html-wasm app.py --output _site --mode run
+python -m http.server --directory _site
+```
+
+One-time setup: in the repository's **Settings → Pages**, set **Source** to **GitHub
+Actions**. Pages on a free GitHub account requires a public repository.
 
 ## Layout
 
