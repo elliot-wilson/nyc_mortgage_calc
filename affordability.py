@@ -41,6 +41,7 @@ class Home:
     property_tax_is_percent: bool
     coop_interest_monthly: float
     insurance_monthly: float
+    upkeep_percent: float  # yearly upkeep savings, as a percent of price
     closing: dict[str, float] = field(
         default_factory=dict[str, float]
     )  # closing cost assumptions
@@ -63,6 +64,7 @@ class Result:
     monthly_mortgage_payment: float
     monthly_property_tax: float
     total_monthly_payment: float
+    monthly_upkeep: float  # set aside for upkeep, not a bill
     closing_cost_items: dict[str, float]
     closing_costs_total: float
     prepaid_items: dict[str, float]
@@ -135,6 +137,7 @@ def evaluate(household: Household, home: Home) -> Result:
         + billed_property_tax
         + home.insurance_monthly
     )
+    monthly_upkeep = price * home.upkeep_percent / 100 / 12
 
     # Closing costs
     points_paid = loan_amount * closing["points"] / 100
@@ -217,6 +220,7 @@ def evaluate(household: Household, home: Home) -> Result:
         monthly_mortgage_payment=monthly_mortgage,
         monthly_property_tax=monthly_property_tax,
         total_monthly_payment=total_monthly_payment,
+        monthly_upkeep=monthly_upkeep,
         closing_cost_items=closing_cost_items,
         closing_costs_total=closing_costs_total,
         prepaid_items=prepaid_items,
@@ -230,6 +234,7 @@ def evaluate(household: Household, home: Home) -> Result:
         monthly_net=monthly_net,
         monthly_leftover=monthly_net
         - total_monthly_payment
+        - monthly_upkeep
         - household.monthly_expenses
         - household.health_insurance,
         closing_cushion=household.available_cash - cash_needed_at_closing,

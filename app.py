@@ -124,7 +124,18 @@ def _(reset_button: mo.ui.button):
         step=1,
         label="Health insurance",
     )
-    return health_insurance, monthly_expenses
+    # The common 1%-a-year rule is for houses. In a condo or co-op the monthly
+    # fees cover the building and big projects come as assessments, so we only
+    # save for the unit's interior: roughly 0.5%.
+    upkeep: mo.ui.slider = mo.ui.slider(
+        start=0,
+        stop=3,
+        step=0.1,
+        value=0.5,
+        include_input=True,
+        label="Upkeep (% of price/yr)",
+    )
+    return health_insurance, monthly_expenses, upkeep
 
 
 @app.cell(hide_code=True)
@@ -341,6 +352,7 @@ def _(
     spouse_1_inputs: mo.ui.dictionary,
     spouse_2_inputs: mo.ui.dictionary,
     upfront_cash: mo.ui.number,
+    upkeep: mo.ui.slider,
 ):
     def _wages(inputs: mo.ui.dictionary) -> dict[str, float]:
         values = inputs.value
@@ -388,6 +400,7 @@ def _(
         property_tax_is_percent=_property_tax_is_percent,
         coop_interest_monthly=coop_interest_portion.value,
         insurance_monthly=homeowners_insurance.value,
+        upkeep_percent=upkeep.value,
         closing={key: number(value) for key, value in closing_inputs.value.items()},
     )
 
@@ -585,7 +598,9 @@ def _(
     income_panel: mo.ui.tabs,
     monthly_expenses: mo.ui.slider,
     reset_button: mo.ui.button,
+    result: Result,
     upfront_cash: mo.ui.number,
+    upkeep: mo.ui.slider,
 ):
     def _section(title: str, *items: object) -> mo.Html:
         return mo.vstack([mo.md(f"**{title}**").style(margin_top="0.75rem"), *items])
@@ -619,6 +634,10 @@ def _(
                 ).style(font_size="0.85rem"),
                 monthly_expenses,
                 health_insurance,
+                upkeep,
+                mo.md(
+                    f"= \\${result.monthly_upkeep:,.0f}/month, set aside for upkeep"
+                ).style(font_size="0.85rem"),
             ),
         ],
         width="520px",
@@ -666,6 +685,7 @@ def _(household: Household, result: Result):
     | Housing payment | −\\${result.total_monthly_payment:,.0f} |
     | Other expenses | −\\${household.monthly_expenses:,.0f} |
     | Health insurance | −\\${household.health_insurance:,.0f} |
+    | Upkeep | −\\${result.monthly_upkeep:,.0f} |
     | **Left over** | **{_leftover}** |
     """),
         ]
