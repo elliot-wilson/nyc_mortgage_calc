@@ -1,8 +1,8 @@
 # Mortgage
 
-A [marimo](https://marimo.io) notebook for deciding whether we can afford an NYC condo
-(or co-op): the monthly payment against our take-home pay and budget, the cash needed at
-closing against our savings, and the highest price that keeps both comfortable.
+A [marimo](https://marimo.io) notebook for deciding whether you can afford an NYC condo
+(or co-op): the monthly payment against your take-home pay and budget, the cash needed at
+closing against your savings, and the highest price that keeps both comfortable.
 
 ## Running it
 
