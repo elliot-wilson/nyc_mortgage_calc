@@ -1,0 +1,36 @@
+[project]
+name = "mortgage"
+version = "0.1.0"
+description = "Home affordability calculator for an NYC condo or co-op purchase, with federal, NYS, and NYC taxes"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "marimo>=0.25.1",
+]
+
+[tool.marimo.display]
+custom_css = ["custom.css"]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.414",
+]
+
+[tool.pyright]
+include = ["*.py"]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+# Every value shared between notebook cells must be annotated where it's
+# defined, so marimo can write its type into the cells that use it.
+reportMissingParameterType = "error"
+strict = [
+    "affordability.py",
+    "closing_costs.py",
+    "fed_tax.py",
+    "fica_tax.py",
+    "household_tax.py",
+    "mortgage.py",
+    "nyc_tax.py",
+    "nys_tax.py",
+    "retirement_401k.py",
+]

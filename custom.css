@@ -1,0 +1,3 @@
+:host(marimo-slider[data-label*="Home price"]) .w-24 {
+  width: 10rem;
+}
