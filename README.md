@@ -54,10 +54,11 @@ Actions**. Pages on a free GitHub account requires a public repository.
 | File | What it does |
 |---|---|
 | `app.py` | The notebook: inputs in the sidebar, results in the main column |
-| `affordability.py` | Evaluates a purchase (payment, closing cash, taxes, verdicts) and searches for the maximum affordable price; the green/yellow/red thresholds live here |
+| `affordability.py` | Evaluates a purchase (payment, closing cash, taxes, co-op board checks, verdicts) and searches for the maximum affordable price; the green/yellow/red thresholds live here |
 | `household_tax.py` | Federal, NYS, and NYC income tax plus FICA for the household, including the housing deductions |
 | `listing.py` | Reads the price, fees, and taxes from a StreetEasy listing's copied page text |
 | `paste_box.py` | The paste target for listings: sends pasted text to the notebook without showing it |
 | `closing_costs.py` | NYS mansion tax and NYC mortgage recording tax |
 | `mortgage.py` | Monthly payment and first-year interest for a 30-year fixed loan |
 | `fed_tax.py`, `nys_tax.py`, `nyc_tax.py`, `fica_tax.py`, `retirement_401k.py` | 2026 tax schedules and limits for married filing jointly |
+| `tax_brackets.py` | Bracket tax and the mortgage-debt limit, shared by the schedules |

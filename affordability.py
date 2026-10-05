@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from closing_costs import mansion_tax, mortgage_recording_tax
@@ -15,16 +15,48 @@ MINIMUM_LEFTOVER = 500  # below: red; in between: yellow
 # Cushion threshold for the closing cash indicator
 COMFORTABLE_CUSHION = 20_000  # at or above: green; below zero: red
 
+# Co-op board thresholds. Boards set their own, but most land in these ranges.
+# Debt-to-income: the housing payment as a share of gross income.
+COMFORTABLE_BOARD_DTI = 0.25  # at or below: green
+MAX_BOARD_DTI = 0.30  # above: red; in between: yellow
+# Liquidity: savings left after closing, in months of housing payments.
+COMFORTABLE_LIQUIDITY_MONTHS = 24  # at or above: green
+MINIMUM_LIQUIDITY_MONTHS = 12  # below: red; in between: yellow
+
+# The "How high can you go?" search
+PRICE_SEARCH_STEP = 10_000
+PRICE_SEARCH_LIMIT = 5_000_000
+
 
 @dataclass(frozen=True)
 class Household:
     gross_income: float
-    pretax_deductions: float
     contribution_401k: float
+    health_insurance: float  # annual premiums, deducted pre-tax from pay
     fica_wages_per_person: list[float]
     monthly_expenses: float
-    health_insurance: float
-    available_cash: float
+    available_cash: float  # for the purchase; excludes the emergency fund
+    emergency_fund: float  # untouched, but co-op boards count it as liquid
+
+    @property
+    def pretax_deductions(self) -> float:
+        return self.contribution_401k + self.health_insurance
+
+
+@dataclass(frozen=True)
+class ClosingAssumptions:
+    buyer_attorney: float
+    lender_attorney: float
+    lender_fees: float
+    building_fees: float
+    recording_and_misc: float
+    points: float  # percent of the loan
+    buyer_broker: float  # percent of price
+    title_insurance: float  # percent of price; condos only
+    escrow_months: float  # property tax collected upfront; condos only
+    tax_adjustment_months: float  # property tax the seller prepaid; condos only
+    fee_adjustment_months: float  # fees the seller prepaid
+    moving: float
 
 
 @dataclass(frozen=True)
@@ -40,9 +72,7 @@ class Home:
     coop_interest_monthly: float
     insurance_monthly: float
     upkeep_percent: float  # yearly upkeep savings, as a percent of price
-    closing: dict[str, float] = field(
-        default_factory=dict[str, float]
-    )  # closing cost assumptions
+    closing: ClosingAssumptions
 
 
 VerdictKind = Literal["success", "warn", "danger"]  # mo.callout kinds
@@ -52,6 +82,10 @@ VerdictKind = Literal["success", "warn", "danger"]  # mo.callout kinds
 class Verdict:
     kind: VerdictKind
     label: str
+
+    def passes(self, *, allow_tight: bool) -> bool:
+        """Green always passes; yellow passes only if allow_tight."""
+        return self.kind == "success" or (allow_tight and self.kind == "warn")
 
 
 @dataclass(frozen=True)
@@ -76,6 +110,8 @@ class Result:
     monthly_net: float
     monthly_leftover: float
     closing_cushion: float
+    board_dti: float  # housing payment over gross income
+    liquidity_months: float  # liquid savings after closing, in housing payments
 
     @property
     def fica(self) -> float:
@@ -100,6 +136,22 @@ class Result:
         if self.closing_cushion >= 0:
             return Verdict("warn", "Tight")
         return Verdict("danger", "Not affordable")
+
+    @property
+    def board_dti_verdict(self) -> Verdict:
+        if self.board_dti <= COMFORTABLE_BOARD_DTI:
+            return Verdict("success", "Meets most boards")
+        if self.board_dti <= MAX_BOARD_DTI:
+            return Verdict("warn", "Meets lenient boards")
+        return Verdict("danger", "Above most boards' limit")
+
+    @property
+    def liquidity_verdict(self) -> Verdict:
+        if self.liquidity_months >= COMFORTABLE_LIQUIDITY_MONTHS:
+            return Verdict("success", "Meets most boards")
+        if self.liquidity_months >= MINIMUM_LIQUIDITY_MONTHS:
+            return Verdict("warn", "Meets lenient boards")
+        return Verdict("danger", "Below most boards' minimum")
 
 
 def evaluate(household: Household, home: Home) -> Result:
@@ -138,22 +190,22 @@ def evaluate(household: Household, home: Home) -> Result:
     monthly_upkeep = price * home.upkeep_percent / 100 / 12
 
     # Closing costs
-    points_paid = loan_amount * closing["points"] / 100
+    points_paid = loan_amount * closing.points / 100
     closing_cost_items = {
         "Mansion tax": mansion_tax(price),
         "Mortgage recording tax": (
             mortgage_recording_tax(loan_amount) if home.is_condo else 0.0
         ),
         "Title insurance": (
-            price * closing["title_insurance"] / 100 if home.is_condo else 0.0
+            price * closing.title_insurance / 100 if home.is_condo else 0.0
         ),
-        "Our attorney": closing["buyer_attorney"],
-        "Lender's attorney": closing["lender_attorney"] if has_loan else 0.0,
-        "Lender fees": closing["lender_fees"] if has_loan else 0.0,
+        "Our attorney": closing.buyer_attorney,
+        "Lender's attorney": closing.lender_attorney if has_loan else 0.0,
+        "Lender fees": closing.lender_fees if has_loan else 0.0,
         "Points": points_paid,
-        "Building fees": closing["building_fees"],
-        "Recording, searches, and misc.": closing["recording_and_misc"],
-        "Our broker": price * closing["buyer_broker"] / 100,
+        "Building fees": closing.building_fees,
+        "Recording, searches, and misc.": closing.recording_and_misc,
+        "Our broker": price * closing.buyer_broker / 100,
     }
     closing_costs_total = sum(closing_cost_items.values())
 
@@ -165,20 +217,20 @@ def evaluate(household: Household, home: Home) -> Result:
         "Homeowner's insurance (first year)": home.insurance_monthly * 12,
         "Interest through month-end": loan_amount * rate / 12,
         "Property tax escrow": (
-            monthly_property_tax * closing["escrow_months"]
+            monthly_property_tax * closing.escrow_months
             if home.is_condo and has_loan
             else 0.0
         ),
         # A co-op's tax is inside maintenance, so only the fee months apply.
-        "Seller reimbursement": home.monthly_fees * closing["fee_adjustment_months"]
+        "Seller reimbursement": home.monthly_fees * closing.fee_adjustment_months
         + (
-            monthly_property_tax * closing["tax_adjustment_months"]
+            monthly_property_tax * closing.tax_adjustment_months
             if home.is_condo
             else 0.0
         ),
     }
     prepaid_total = sum(prepaid_items.values())
-    moving_costs = closing["moving"]
+    moving_costs = closing.moving
     cash_needed_at_closing = (
         down_payment + closing_costs_total + prepaid_total + moving_costs
     )
@@ -203,13 +255,10 @@ def evaluate(household: Household, home: Home) -> Result:
     )
     social_security, medicare = fica_taxes(household.fica_wages_per_person)
 
-    monthly_net = (
-        household.gross_income
-        - household.pretax_deductions
-        - taxes.total
-        - social_security
-        - medicare
-    ) / 12
+    # Take-home pay: what's left of each paycheck after 401(k), health
+    # insurance, and taxes
+    monthly_net = (agi - taxes.total - social_security - medicare) / 12
+    cushion = household.available_cash - cash_needed_at_closing
 
     return Result(
         down_payment=down_payment,
@@ -233,9 +282,18 @@ def evaluate(household: Household, home: Home) -> Result:
         monthly_leftover=monthly_net
         - total_monthly_payment
         - monthly_upkeep
-        - household.monthly_expenses
-        - household.health_insurance,
-        closing_cushion=household.available_cash - cash_needed_at_closing,
+        - household.monthly_expenses,
+        closing_cushion=cushion,
+        board_dti=(
+            total_monthly_payment / (household.gross_income / 12)
+            if household.gross_income
+            else float("inf")
+        ),
+        liquidity_months=(
+            (cushion + household.emergency_fund) / total_monthly_payment
+            if total_monthly_payment
+            else float("inf")
+        ),
     )
 
 
@@ -244,8 +302,8 @@ def max_affordable_price(
     home: Home,
     acceptable: Callable[[Result], bool],
     *,
-    step: float = 10_000,
-    limit: float = 5_000_000,
+    step: float = PRICE_SEARCH_STEP,
+    limit: float = PRICE_SEARCH_LIMIT,
 ) -> float | None:
     """
     The highest price (in `step` increments) up to which every price is

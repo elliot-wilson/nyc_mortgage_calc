@@ -4,13 +4,12 @@ from dataclasses import dataclass
 
 from fed_tax import MFJ_2026 as FED_MFJ_2026
 from fed_tax import allowed_salt_deduction, federal_income_tax
-from fed_tax import deductible_mortgage_interest as fed_mortgage_interest
 from fica_tax import medicare_tax, social_security_tax
 from nyc_tax import MFJ_2026 as NYC_MFJ_2026
 from nyc_tax import nyc_tax
 from nys_tax import MFJ_2026 as NY_MFJ_2026
-from nys_tax import deductible_mortgage_interest as ny_mortgage_interest
 from nys_tax import ny_itemized_deduction, nys_tax
+from tax_brackets import deductible_mortgage_interest
 
 
 @dataclass(frozen=True)
@@ -67,8 +66,8 @@ def income_taxes(
         federal_agi=agi,
         ny_agi=ny_agi,
         property_tax=property_tax,
-        mortgage_interest=ny_mortgage_interest(
-            mortgage_interest, loan_amount, NY_MFJ_2026
+        mortgage_interest=deductible_mortgage_interest(
+            mortgage_interest, loan_amount, NY_MFJ_2026.mortgage_debt_limit
         )
         + coop_building_interest,
         state_and_local_income_taxes=income_taxes_withheld,
@@ -86,7 +85,9 @@ def income_taxes(
         state_tax + city_tax + property_tax, agi, FED_MFJ_2026
     )
     mortgage_interest_deduction = (
-        fed_mortgage_interest(mortgage_interest, loan_amount, FED_MFJ_2026)
+        deductible_mortgage_interest(
+            mortgage_interest, loan_amount, FED_MFJ_2026.mortgage_debt_limit
+        )
         + coop_building_interest
     )
     federal_itemized = salt_deduction + mortgage_interest_deduction

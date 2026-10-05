@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from tax_brackets import bracket_tax
+
 
 @dataclass(frozen=True)
 class NYCSchedule:
@@ -12,14 +14,6 @@ class NYCSchedule:
     school_rate_reduction_taxable_income_limit: (
         float  # NYC taxable income ceiling (hard cliff)
     )
-
-    @property
-    def floors(self) -> list[float]:
-        return list(self.brackets)
-
-    @property
-    def rates(self) -> list[float]:
-        return list(self.brackets.values())
 
 
 MFJ_2026 = NYCSchedule(
@@ -41,24 +35,8 @@ MFJ_2026 = NYCSchedule(
 )
 
 
-def _bracket_tax(amount: float, floors: list[float], rates: list[float]) -> float:
-    tax = 0.0
-    for i, (floor, rate) in enumerate(zip(floors, rates)):
-        if amount <= floor:
-            break
-        max_subject_within_bracket = (
-            floors[i + 1] if i + 1 < len(floors) else float("inf")
-        )
-        tax += (min(amount, max_subject_within_bracket) - floor) * rate
-    return tax
-
-
-def bracket_tax(amount: float, tax_schedule: NYCSchedule) -> float:
-    return _bracket_tax(amount, tax_schedule.floors, tax_schedule.rates)
-
-
 def nyc_gross_tax(taxable_income: float, tax_schedule: NYCSchedule = MFJ_2026) -> float:
-    return bracket_tax(max(taxable_income, 0.0), tax_schedule)
+    return bracket_tax(max(taxable_income, 0.0), tax_schedule.brackets)
 
 
 def nyc_school_credits(
@@ -74,10 +52,8 @@ def nyc_school_credits(
         credit += tax_schedule.school_fixed_credit
     if taxable_income <= tax_schedule.school_rate_reduction_taxable_income_limit:
         credit += round(
-            _bracket_tax(
-                max(taxable_income, 0.0),
-                list(tax_schedule.school_rate_reduction),
-                list(tax_schedule.school_rate_reduction.values()),
+            bracket_tax(
+                max(taxable_income, 0.0), tax_schedule.school_rate_reduction
             )
         )
     return credit

@@ -37,4 +37,5 @@ strict = [
     "nys_tax.py",
     "paste_box.py",
     "retirement_401k.py",
+    "tax_brackets.py",
 ]

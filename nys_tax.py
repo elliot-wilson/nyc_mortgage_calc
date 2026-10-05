@@ -1,6 +1,8 @@
 from bisect import bisect_right
 from dataclasses import dataclass
 
+from tax_brackets import bracket_tax
+
 
 @dataclass(frozen=True)
 class NYSchedule:
@@ -57,19 +59,6 @@ MFJ_2026 = NYSchedule(
 )
 
 
-def bracket_tax(taxable_income: float, tax_schedule: NYSchedule) -> float:
-    floors, rates = tax_schedule.floors, tax_schedule.rates
-    tax = 0.0
-    for i, (floor, rate) in enumerate(zip(floors, rates)):
-        if taxable_income <= floor:
-            break
-        max_subject_within_bracket = (
-            floors[i + 1] if i + 1 < len(floors) else float("inf")
-        )
-        tax += (min(taxable_income, max_subject_within_bracket) - floor) * rate
-    return tax
-
-
 def _phase(nyagi: float, start: float, tax_schedule: NYSchedule) -> float:
     # DTF worksheets round the phase-in fraction to 4 decimal places
     return round(
@@ -87,9 +76,8 @@ def nys_tax(
     if ny_agi > tax_schedule.flat_top_threshold:
         return taxable_income * rates[-1]
 
-    base = bracket_tax(
-        taxable_income, tax_schedule
-    )  # the "normal" tax without recapture adjustments
+    # the "normal" tax without recapture adjustments
+    base = bracket_tax(taxable_income, tax_schedule.brackets)
     if ny_agi <= tax_schedule.recapture_start:
         return base
 
@@ -106,22 +94,13 @@ def nys_tax(
     bracket_floor = floors[taxable_income_bracket_index]
     recapture_base = rates[
         taxable_income_bracket_index - 1
-    ] * bracket_floor - bracket_tax(bracket_floor, tax_schedule)
+    ] * bracket_floor - bracket_tax(bracket_floor, tax_schedule.brackets)
     increment = (
         rates[taxable_income_bracket_index] - rates[taxable_income_bracket_index - 1]
     ) * bracket_floor
     return (
         base + recapture_base + _phase(ny_agi, bracket_floor, tax_schedule) * increment
     )
-
-
-def deductible_mortgage_interest(
-    interest_paid: float, loan_amount: float, tax_schedule: NYSchedule = MFJ_2026
-) -> float:
-    """Interest on debt above the limit isn't deductible, so prorate by the covered share."""
-    if loan_amount <= tax_schedule.mortgage_debt_limit:
-        return interest_paid
-    return interest_paid * tax_schedule.mortgage_debt_limit / loan_amount
 
 
 def ny_itemized_deduction(
@@ -134,8 +113,8 @@ def ny_itemized_deduction(
     tax_schedule: NYSchedule = MFJ_2026,
 ) -> float:
     """
-    Form IT-196, lines 40-47. mortgage_interest should already be limited by
-    deductible_mortgage_interest. state_and_local_income_taxes is what was paid
+    Form IT-196, lines 40-47. mortgage_interest should already be limited to
+    the interest on mortgage_debt_limit of debt. state_and_local_income_taxes is what was paid
     during the year: NY disallows it, but it still sets the size of the Pease cut.
     """
     # Line 40: the pre-2018 federal "Pease" limit, applied to the full total

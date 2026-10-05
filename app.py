@@ -4,6 +4,7 @@ __generated_with = "0.25.1"
 app = marimo.App(width="medium", app_title="Can you afford it?")
 
 with app.setup(hide_code=True):
+    import math
     from collections.abc import Callable
     from dataclasses import dataclass
     from typing import Literal
@@ -15,6 +16,9 @@ with app.setup(hide_code=True):
 
     from affordability import (
         MIN_DOWN_PAYMENT_SHARE,
+        PRICE_SEARCH_LIMIT,
+        PRICE_SEARCH_STEP,
+        ClosingAssumptions,
         Home,
         Household,
         Result,
@@ -37,9 +41,11 @@ with app.setup(hide_code=True):
         spouse_1_wages: int = 220_000
         spouse_2_wages: int = 0
         contribution_percent: float = 8
+        spouse_1_health_insurance: int = 600
+        spouse_2_health_insurance: int = 0
         available_cash: int = 340_000
+        emergency_fund: int = 0
         monthly_expenses: int = 3_500
-        health_insurance: int = 600
         upkeep_percent: float = 0.5
         home_price: int = 1_200_000
         down_payment_display: Display = "Percentage"
@@ -54,6 +60,11 @@ with app.setup(hide_code=True):
         coop_interest_monthly: int = 250
         insurance_monthly: int = 50
 
+    # A co-op's maintenance includes its property tax. When a listing doesn't
+    # give the tax portion, assume a modest share: it only feeds the SALT
+    # deduction, so guessing low errs toward higher taxes.
+    COOP_TAX_SHARE_OF_MAINTENANCE = 0.4
+
     def number(value: object) -> float:
         """A numeric UI value as a float; an emptied number field reads as None."""
         if value is None:
@@ -61,6 +72,12 @@ with app.setup(hide_code=True):
         if not isinstance(value, int | float):
             raise TypeError(f"Expected a number, got {value!r}")
         return float(value)
+
+    def money(amount: float, *, markdown: bool = True) -> str:
+        """Whole dollars with a minus sign. mo.md needs $ escaped, mo.stat doesn't."""
+        dollar = "\\$" if markdown else "$"
+        sign = "−" if round(amount) < 0 else ""
+        return f"{sign}{dollar}{abs(amount):,.0f}"
 
 
 @app.cell(hide_code=True)
@@ -85,12 +102,12 @@ def _(reset_button: mo.ui.button):
 
 @app.cell(hide_code=True)
 def _(defaults: Defaults):
-    def _wage_inputs(wages: int) -> mo.ui.dictionary:
+    def _wage_inputs(wages: int, health_insurance: int) -> mo.ui.dictionary:
         return mo.ui.dictionary(
             {
                 "income": mo.ui.slider(
                     start=0,
-                    stop=600_000,
+                    stop=1_000_000,
                     step=10_000,
                     value=wages,
                     include_input=True,
@@ -104,11 +121,23 @@ def _(defaults: Defaults):
                     include_input=True,
                     label="401(k) contribution (% of gross)",
                 ),
+                # Employer plans take premiums out of pay before income tax
+                # and FICA (a Section 125 plan).
+                "health_insurance": mo.ui.number(
+                    start=0,
+                    step=10,
+                    value=health_insurance,
+                    label="Health insurance (monthly, pre-tax)",
+                ),
             }
         )
 
-    spouse_1_inputs: mo.ui.dictionary = _wage_inputs(defaults.spouse_1_wages)
-    spouse_2_inputs: mo.ui.dictionary = _wage_inputs(defaults.spouse_2_wages)
+    spouse_1_inputs: mo.ui.dictionary = _wage_inputs(
+        defaults.spouse_1_wages, defaults.spouse_1_health_insurance
+    )
+    spouse_2_inputs: mo.ui.dictionary = _wage_inputs(
+        defaults.spouse_2_wages, defaults.spouse_2_health_insurance
+    )
     return spouse_1_inputs, spouse_2_inputs
 
 
@@ -119,6 +148,7 @@ def _(spouse_1_inputs: mo.ui.dictionary, spouse_2_inputs: mo.ui.dictionary):
             [
                 inputs["income"],
                 inputs["contribution_percent"],
+                inputs["health_insurance"],
             ]
         )
 
@@ -153,30 +183,29 @@ def _(listing_paste: mo.ui.anywidget):
 @app.cell(hide_code=True)
 def _(defaults: Defaults):
     upfront_cash: mo.ui.number = mo.ui.number(
-        start=300_000,
+        start=0,
         step=1_000,
-        stop=500_000,
         value=defaults.available_cash,
         label="Available cash",
     )
-    return (upfront_cash,)
+    emergency_fund: mo.ui.number = mo.ui.number(
+        start=0,
+        step=1_000,
+        value=defaults.emergency_fund,
+        label="Emergency fund",
+    )
+    return emergency_fund, upfront_cash
 
 
 @app.cell(hide_code=True)
 def _(defaults: Defaults):
     monthly_expenses: mo.ui.slider = mo.ui.slider(
-        start=2_000,
+        start=0,
         step=100,
-        stop=10_000,
+        stop=20_000,
         value=defaults.monthly_expenses,
         include_input=True,
         label="Monthly expenses",
-    )
-    health_insurance: mo.ui.number = mo.ui.number(
-        start=0,
-        step=1,
-        value=defaults.health_insurance,
-        label="Health insurance",
     )
     upkeep: mo.ui.slider = mo.ui.slider(
         start=0,
@@ -186,7 +215,7 @@ def _(defaults: Defaults):
         include_input=True,
         label="Upkeep (% of price/yr)",
     )
-    return health_insurance, monthly_expenses, upkeep
+    return monthly_expenses, upkeep
 
 
 @app.cell(hide_code=True)
@@ -202,7 +231,7 @@ def _(defaults: Defaults):
 
     down_payment_input_amount: mo.ui.slider = mo.ui.slider(
         start=0,
-        stop=2_000_000,
+        stop=PRICE_SEARCH_LIMIT,
         step=10_000,
         value=defaults.down_payment_amount,
         include_input=True,
@@ -236,7 +265,7 @@ def _(defaults: Defaults, listing: Listing):
     _price = listing.price or defaults.home_price
     home_price: mo.ui.slider = mo.ui.slider(
         start=0,
-        stop=max(2_000_000, _price),
+        stop=max(PRICE_SEARCH_LIMIT, _price),
         step=1_000,  # fine enough to hold a listing's exact price
         value=_price,
         include_input=True,
@@ -263,6 +292,18 @@ def _(defaults: Defaults, listing: Listing):
         value=_fees,
     )
 
+    property_tax_display: mo.ui.radio = mo.ui.radio(
+        options=["Percentage", "Amount"],
+        value=defaults.property_tax_display,
+        inline=True,
+    )
+    return building_type, condo_or_coop_fees, property_tax_display
+
+
+@app.cell(hide_code=True)
+def _(building_type: mo.ui.radio, defaults: Defaults, listing: Listing):
+    # Recreated when the building type changes, since a co-op's figure means
+    # something different: the tax portion of maintenance.
     property_tax_input_percentage: mo.ui.slider = mo.ui.slider(
         start=0,
         stop=3,
@@ -272,7 +313,13 @@ def _(defaults: Defaults, listing: Listing):
         label="Property tax (annual % of price)",
     )
 
-    _taxes = listing.monthly_taxes or defaults.property_tax_monthly
+    if listing.monthly_taxes:
+        _taxes = listing.monthly_taxes
+    elif building_type.value == "Co-op":
+        _maintenance = listing.monthly_fees or defaults.monthly_fees
+        _taxes = round(_maintenance * COOP_TAX_SHARE_OF_MAINTENANCE)
+    else:
+        _taxes = defaults.property_tax_monthly
     property_tax_input_amount: mo.ui.slider = mo.ui.slider(
         start=0,
         stop=max(5_000, _taxes),
@@ -281,19 +328,7 @@ def _(defaults: Defaults, listing: Listing):
         include_input=True,
         label="Property tax (monthly)",
     )
-
-    property_tax_display: mo.ui.radio = mo.ui.radio(
-        options=["Percentage", "Amount"],
-        value=defaults.property_tax_display,
-        inline=True,
-    )
-    return (
-        building_type,
-        condo_or_coop_fees,
-        property_tax_display,
-        property_tax_input_amount,
-        property_tax_input_percentage,
-    )
+    return property_tax_input_amount, property_tax_input_percentage
 
 
 @app.cell(hide_code=True)
@@ -315,15 +350,15 @@ def _(defaults: Defaults):
         step=5,
         value=defaults.insurance_monthly,
         include_input=True,
-        label="Insurance (monthly)",
+        label="Homeowner's insurance (monthly)",
     )
     return coop_interest_portion, homeowners_insurance
 
 
 @app.cell(hide_code=True)
 def _(building_type: mo.ui.radio):
-    # Conservative (high-end) NYC defaults; they reset when the building type
-    # changes, including on a full reset (which recreates building_type).
+    # Conservative (high-end) NYC defaults; they reset whenever building_type
+    # is recreated: on a type change, a reset, or a pasted listing.
     _defaults = (
         {
             "buyer_attorney": 5_000,
@@ -345,6 +380,18 @@ def _(building_type: mo.ui.radio):
     def _flat(key: str) -> mo.ui.number:
         return mo.ui.number(start=0, step=250, value=_defaults[key], full_width=True)
 
+    closing_fee_inputs: mo.ui.dictionary = mo.ui.dictionary(
+        {key: _flat(key) for key in _defaults}
+    )
+    return (closing_fee_inputs,)
+
+
+@app.cell(hide_code=True)
+def _(defaults: Defaults):
+    # The assumptions that don't depend on building type, kept apart so
+    # switching it (or pasting a listing) doesn't reset them.
+    _ = defaults
+
     # Labels live here rather than on the inputs so the display can align them
     # in a column.
     closing_labels: dict[str, str] = {
@@ -362,13 +409,8 @@ def _(building_type: mo.ui.radio):
         "moving": "Moving and setup",
     }
 
-    closing_inputs: mo.ui.dictionary = mo.ui.dictionary(
+    closing_rate_inputs: mo.ui.dictionary = mo.ui.dictionary(
         {
-            "buyer_attorney": _flat("buyer_attorney"),
-            "lender_attorney": _flat("lender_attorney"),
-            "lender_fees": _flat("lender_fees"),
-            "building_fees": _flat("building_fees"),
-            "recording_and_misc": _flat("recording_and_misc"),
             "points": mo.ui.number(
                 start=0, stop=4, step=0.125, value=0, full_width=True
             ),
@@ -392,19 +434,20 @@ def _(building_type: mo.ui.radio):
             "moving": mo.ui.number(start=0, step=500, value=5_000, full_width=True),
         }
     )
-    return closing_inputs, closing_labels
+    return closing_labels, closing_rate_inputs
 
 
 @app.cell(hide_code=True)
 def _(
     building_type: mo.ui.radio,
-    closing_inputs: mo.ui.dictionary,
+    closing_fee_inputs: mo.ui.dictionary,
+    closing_rate_inputs: mo.ui.dictionary,
     condo_or_coop_fees: mo.ui.slider,
     coop_interest_portion: mo.ui.slider,
     down_payment_display: mo.ui.radio,
     down_payment_input_amount: mo.ui.slider,
     down_payment_input_percentage: mo.ui.slider,
-    health_insurance: mo.ui.number,
+    emergency_fund: mo.ui.number,
     home_price: mo.ui.slider,
     homeowners_insurance: mo.ui.slider,
     monthly_expenses: mo.ui.slider,
@@ -423,23 +466,29 @@ def _(
         contribution_401k = employee_deferral(
             income, percent=number(values["contribution_percent"])
         )
+        # Premiums come out of pay, so they can't exceed what's left of it.
+        health_insurance = min(
+            number(values["health_insurance"]) * 12,
+            max(income - contribution_401k, 0),
+        )
         return {
             "income": income,
             "contribution_401k": contribution_401k,
-            "pretax_deductions": contribution_401k,
-            "fica_wages": max(income - contribution_401k, 0),
+            "health_insurance": health_insurance,
+            # 401(k) deferrals are still subject to FICA; health premiums aren't.
+            "fica_wages": income - health_insurance,
         }
 
     _spouses = [_wages(spouse_1_inputs), _wages(spouse_2_inputs)]
 
     household: Household = Household(
         gross_income=sum(spouse["income"] for spouse in _spouses),
-        pretax_deductions=sum(spouse["pretax_deductions"] for spouse in _spouses),
         contribution_401k=sum(spouse["contribution_401k"] for spouse in _spouses),
+        health_insurance=sum(spouse["health_insurance"] for spouse in _spouses),
         fica_wages_per_person=[spouse["fica_wages"] for spouse in _spouses],
         monthly_expenses=monthly_expenses.value,
-        health_insurance=number(health_insurance.value),
         available_cash=number(upfront_cash.value),
+        emergency_fund=number(emergency_fund.value),
     )
 
     _down_payment_is_percent = down_payment_display.value == "Percentage"
@@ -464,7 +513,14 @@ def _(
         coop_interest_monthly=coop_interest_portion.value,
         insurance_monthly=homeowners_insurance.value,
         upkeep_percent=upkeep.value,
-        closing={key: number(value) for key, value in closing_inputs.value.items()},
+        closing=ClosingAssumptions(
+            **{
+                key: number(value)
+                for key, value in (
+                    closing_fee_inputs.value | closing_rate_inputs.value
+                ).items()
+            }
+        ),
     )
 
     result: Result = evaluate(household, home)
@@ -476,27 +532,25 @@ def _(home: Home, household: Household):
     # Highest price at which each card stays green, or at least not red,
     # holding every other input fixed.
     def _max_price(
-        verdict: Callable[[Result], Verdict], allowed: set[str]
+        verdict: Callable[[Result], Verdict], allow_tight: bool
     ) -> float | None:
         return max_affordable_price(
-            household, home, lambda result: verdict(result).kind in allowed
+            household,
+            home,
+            lambda result: verdict(result).passes(allow_tight=allow_tight),
         )
 
-    def _monthly(result: Result) -> Verdict:
-        return result.monthly_verdict
-
-    def _closing(result: Result) -> Verdict:
-        return result.closing_verdict
+    _checks: dict[str, Callable[[Result], Verdict]] = {
+        "Monthly budget": lambda result: result.monthly_verdict,
+        "Cash at closing": lambda result: result.closing_verdict,
+    }
+    if not home.is_condo:
+        _checks["Board debt-to-income"] = lambda result: result.board_dti_verdict
+        _checks["Board liquidity"] = lambda result: result.liquidity_verdict
 
     max_prices: dict[str, tuple[float | None, float | None]] = {
-        "Monthly budget": (
-            _max_price(_monthly, {"success"}),
-            _max_price(_monthly, {"success", "warn"}),
-        ),
-        "Cash at closing": (
-            _max_price(_closing, {"success"}),
-            _max_price(_closing, {"success", "warn"}),
-        ),
+        name: (_max_price(verdict, False), _max_price(verdict, True))
+        for name, verdict in _checks.items()
     }
     return (max_prices,)
 
@@ -508,23 +562,29 @@ def _(
     max_prices: dict[str, tuple[float | None, float | None]],
     result: Result,
 ):
-    def _money(amount: float) -> str:
-        return f"−${-amount:,.0f}" if amount < 0 else f"${amount:,.0f}"
-
     def _card(
         value: str, label: str, caption: str, kind: CardKind = "neutral"
     ) -> mo.Html:
         return mo.callout(mo.stat(value=value, label=label, caption=caption), kind=kind)
 
+    def _verdict_card(value: str, label: str, verdict: Verdict) -> mo.Html:
+        return _card(value, label, verdict.label, verdict.kind)
+
     def _row(*cards: mo.Html) -> mo.Html:
         return mo.hstack(list(cards), widths="equal", gap=1)
 
     def _price(amount: float | None) -> str:
-        return "under \\$10,000" if amount is None else f"\\${amount:,.0f}"
+        if amount is None:
+            return f"under {money(PRICE_SEARCH_STEP)}"
+        # The search stops at its limit, so the true ceiling may be higher.
+        return money(amount) + ("+" if amount >= PRICE_SEARCH_LIMIT else "")
 
     def _lowest(prices: tuple[float | None, ...]) -> float | None:
         known = [price for price in prices if price is not None]
         return min(known) if len(known) == len(prices) else None
+
+    def _ratio(value: float, format_spec: str, unit: str = "") -> str:
+        return "—" if math.isinf(value) else f"{value:{format_spec}}{unit}"
 
     _green, _not_red = zip(*max_prices.values())
     _price_lines = [
@@ -536,51 +596,102 @@ def _(
         ),
         f"| **Highest price** | **{_price(_lowest(_green))}** | **{_price(_lowest(_not_red))}** |",
     ]
-    _held_fixed = "Holding every other input fixed, in \\$10,000 steps." + (
-        ""
-        if home.property_tax_is_percent
-        else f" Property tax stays at \\${home.property_tax:,.0f}/month."
+
+    # Inputs entered in dollars don't scale with price during the search.
+    _fixed = [
+        (
+            f"{'common charges' if home.is_condo else 'maintenance'} "
+            f"({money(home.monthly_fees)}/month)"
+        ),
+        *(
+            []
+            if home.property_tax_is_percent
+            else [f"property tax ({money(home.property_tax)}/month)"]
+        ),
+        *(
+            []
+            if home.down_payment_is_percent
+            else [
+                (
+                    f"the down payment ({money(home.down_payment)}, raised to "
+                    f"{MIN_DOWN_PAYMENT_SHARE:.0%} of price where that's more)"
+                )
+            ]
+        ),
+    ]
+    _held_fixed = (
+        f"Holding every other input fixed, in {money(PRICE_SEARCH_STEP)} steps, "
+        f"so these stay the same at every price: {', '.join(_fixed)}."
     )
 
-    _monthly = result.monthly_verdict
-    _closing = result.closing_verdict
+    _footnotes = [
+        (
+            "\\* Available cash and cash left after closing exclude any "
+            "emergency funds, which stay untouched."
+        ),
+        (
+            "† Assumes the tax savings from itemizing arrive in each paycheck. "
+            "In practice, the tax savings may arrive in a refund, making monthly "
+            "budgeting a little tighter. Also assumes that monthly expenses are ONLY "
+            "paid out of monthly wages, not with excess cash on hand (such as "
+            "leftover savings post-closing)."
+        ),
+    ]
+    _board_row: list[mo.Html] = []
+    if not home.is_condo:
+        _board_row = [
+            _row(
+                _verdict_card(
+                    _ratio(result.board_dti, ".0%"),
+                    "Board debt-to-income‡",
+                    result.board_dti_verdict,
+                ),
+                _verdict_card(
+                    _ratio(result.liquidity_months, ".0f", " months"),
+                    "Liquidity after closing‡",
+                    result.liquidity_verdict,
+                ),
+            )
+        ]
+        _footnotes.append(
+            "‡ Co-op boards set their own limits. Most want the monthly payment "
+            "to be at most 25–30% of gross income, counting any other debt "
+            "payments too, and liquid savings after closing, including the "
+            "emergency fund, to cover 1–2 years of payments. Many don't count "
+            "retirement accounts, and some are stricter."
+        )
+
     mo.vstack(
         [
             mo.md("# Can you afford it?"),
             _row(
                 _card(
-                    _money(result.total_monthly_payment),
+                    money(result.total_monthly_payment, markdown=False),
                     "Monthly payment",
                     "mortgage, fees, tax, insurance",
                 ),
-                _card(
-                    _money(result.monthly_leftover),
+                _verdict_card(
+                    money(result.monthly_leftover, markdown=False),
                     "Left over each month†",
-                    _monthly.label,
-                    _monthly.kind,
+                    result.monthly_verdict,
                 ),
             ),
             _row(
                 _card(
-                    _money(result.cash_needed_at_closing),
+                    money(result.cash_needed_at_closing, markdown=False),
                     "Cash needed at closing",
-                    f"of {_money(household.available_cash)} available*",
+                    f"of {money(household.available_cash, markdown=False)} available*",
                 ),
-                _card(
-                    _money(result.closing_cushion),
+                _verdict_card(
+                    money(result.closing_cushion, markdown=False),
                     "Cash left after closing*",
-                    _closing.label,
-                    _closing.kind,
+                    result.closing_verdict,
                 ),
             ),
-            mo.md(
-                "\\* Available cash and cash left after closing exclude any "
-                "emergency funds, which stay untouched.  \n"
-                "† Assumes the tax savings from itemizing arrive in each paycheck. "
-                "In practice, the tax savings may arrive in a refund, making monthly "
-                "budgeting a little tighter. Also assumes that monthly expenses are ONLY "
-                "paid out of monthly wages, not with excess cash on hand (such as leftover savings post-closing)."
-            ).style(font_size="0.85rem", color="var(--muted-foreground, gray)"),
+            *_board_row,
+            mo.md("  \n".join(_footnotes)).style(
+                font_size="0.85rem", color="var(--muted-foreground, gray)"
+            ),
             mo.md("### How high can you go?"),
             mo.md("\n".join(_price_lines)),
             mo.md(_held_fixed).style(
@@ -615,14 +726,18 @@ def _(
         "maintenance" if listing.building_type == "Co-op" else "common charges"
     )
     _found = [
-        *([f"\\${listing.price:,}"] if listing.price else []),
+        *([money(listing.price)] if listing.price else []),
         *([listing.building_type] if listing.building_type else []),
         *(
-            [f"\\${listing.monthly_fees:,}/mo {_fees_label}"]
+            [f"{money(listing.monthly_fees)}/mo {_fees_label}"]
             if listing.monthly_fees
             else []
         ),
-        *([f"\\${listing.monthly_taxes:,}/mo taxes"] if listing.monthly_taxes else []),
+        *(
+            [f"{money(listing.monthly_taxes)}/mo taxes"]
+            if listing.monthly_taxes
+            else []
+        ),
     ]
     _missing = [
         name
@@ -668,10 +783,10 @@ def _(
     if result.down_payment_raised:
         _down_payment_note = (
             f"Below the {MIN_DOWN_PAYMENT_SHARE:.0%} minimum, so using "
-            f"\\${result.down_payment:,.0f}."
+            f"{money(result.down_payment)}."
         )
     elif home.down_payment_is_percent:
-        _down_payment_note = f"= \\${result.down_payment:,.0f}"
+        _down_payment_note = f"= {money(result.down_payment)}"
     else:
         _share = result.down_payment / home.price if home.price else 0.0
         _down_payment_note = f"= {_share:.1%} of price"
@@ -682,7 +797,21 @@ def _(
         if building_type.value == "Condo"
         else "Co-op taxes are already inside maintenance, so enter the tax "
         "portion of maintenance here. It counts toward the SALT deduction "
-        "but isn't added to the monthly payment again."
+        "but isn't added to the monthly payment again. Unless a listing gives "
+        f"it, this starts at {COOP_TAX_SHARE_OF_MAINTENANCE:.0%} of maintenance, "
+        "a cautious guess; the building's financials have the real figure."
+    )
+    _coop_tax_warning = (
+        mo.callout(
+            mo.md(
+                f"The tax portion ({money(result.monthly_property_tax)}/month) is "
+                f"more than the whole maintenance fee ({money(home.monthly_fees)}), "
+                "which overstates the SALT deduction."
+            ),
+            kind="warn",
+        )
+        if not home.is_condo and result.monthly_property_tax > home.monthly_fees
+        else None
     )
 
     housing_panel: mo.Html = mo.vstack(
@@ -707,6 +836,7 @@ def _(
             if home.property_tax_is_percent
             else property_tax_input_amount,
             mo.md(_property_tax_note).style(font_size="0.85rem"),
+            *([_coop_tax_warning] if _coop_tax_warning else []),
             *([coop_interest_portion] if building_type.value == "Co-op" else []),
             homeowners_insurance,
         ]
@@ -716,7 +846,8 @@ def _(
 
 @app.cell(hide_code=True)
 def _(
-    health_insurance: mo.ui.number,
+    emergency_fund: mo.ui.number,
+    home: Home,
     housing_panel: mo.Html,
     income_panel: mo.ui.tabs,
     monthly_expenses: mo.ui.slider,
@@ -748,6 +879,17 @@ def _(
                     "Budget for down payment, closing costs, etc. Excludes any emergency funds."
                 ).style(font_size="0.85rem"),
                 upfront_cash,
+                *(
+                    []
+                    if home.is_condo
+                    else [
+                        emergency_fund,
+                        mo.md(
+                            "Never spent on the purchase, but co-op boards count "
+                            "it toward liquidity after closing."
+                        ).style(font_size="0.85rem"),
+                    ]
+                ),
             ),
             _section("Housing", housing_panel),
             _section(
@@ -756,10 +898,9 @@ def _(
                     "Typical credit card bill plus padding, rather than an itemized budget, at least for now."
                 ).style(font_size="0.85rem"),
                 monthly_expenses,
-                health_insurance,
                 upkeep,
                 mo.md(
-                    f"= \\${result.monthly_upkeep:,.0f}/month, set aside for upkeep"
+                    f"= {money(result.monthly_upkeep)}/month, set aside for upkeep"
                 ).style(font_size="0.85rem"),
             ),
         ],
@@ -783,8 +924,11 @@ def _(home: Home, result: Result):
     _lines = [
         "| | Monthly | |",
         "|:---|---:|:---|",
-        *(f"| {label} | \\${amount:,.0f} | {note} |" for label, amount, note in _rows),
-        f"| **Total monthly payment** | **\\${result.total_monthly_payment:,.0f}** | on a \\${result.loan_amount:,.0f} loan |",
+        *(f"| {label} | {money(amount)} | {note} |" for label, amount, note in _rows),
+        (
+            f"| **Total monthly payment** | **{money(result.total_monthly_payment)}** "
+            f"| on a {money(result.loan_amount)} loan |"
+        ),
     ]
     mo.vstack([mo.md("### Monthly payment"), mo.md("\n".join(_lines))])
     return
@@ -792,24 +936,17 @@ def _(home: Home, result: Result):
 
 @app.cell(hide_code=True)
 def _(household: Household, result: Result):
-    _leftover = (
-        f"−\\${-result.monthly_leftover:,.0f}"
-        if result.monthly_leftover < 0
-        else f"\\${result.monthly_leftover:,.0f}"
-    )
-
     mo.vstack(
         [
             mo.md("### Monthly budget"),
             mo.md(f"""
-    | | Monthly |
-    |:---|---:|
-    | Net take-home pay | \\${result.monthly_net:,.0f} |
-    | Housing payment | −\\${result.total_monthly_payment:,.0f} |
-    | Other expenses | −\\${household.monthly_expenses:,.0f} |
-    | Health insurance | −\\${household.health_insurance:,.0f} |
-    | Upkeep | −\\${result.monthly_upkeep:,.0f} |
-    | **Left over** | **{_leftover}** |
+    | | Monthly | |
+    |:---|---:|:---|
+    | Take-home pay | {money(result.monthly_net)} | after taxes, 401(k), and health insurance |
+    | Monthly payment | {money(-result.total_monthly_payment)} | |
+    | Monthly expenses | {money(-household.monthly_expenses)} | |
+    | Upkeep | {money(-result.monthly_upkeep)} | |
+    | **Left over** | **{money(result.monthly_leftover)}** | |
     """),
         ]
     )
@@ -818,14 +955,15 @@ def _(household: Household, result: Result):
 
 @app.cell(hide_code=True)
 def _(
-    closing_inputs: mo.ui.dictionary,
+    closing_fee_inputs: mo.ui.dictionary,
     closing_labels: dict[str, str],
+    closing_rate_inputs: mo.ui.dictionary,
     home: Home,
     result: Result,
 ):
     def _rows(items: dict[str, float]) -> str:
         return "\n".join(
-            f"| {name} | \\${amount:,.0f} |" for name, amount in items.items() if amount
+            f"| {name} | {money(amount)} |" for name, amount in items.items() if amount
         )
 
     _share = result.closing_costs_total / home.price if home.price else 0.0
@@ -838,7 +976,10 @@ def _(
                 widths=[3, 2],
                 align="center",
             )
-            for _key, _input in closing_inputs.items()
+            for _key, _input in [
+                *closing_fee_inputs.items(),
+                *closing_rate_inputs.items(),
+            ]
             if home.is_condo or _key not in _condo_only
         ]
     ).style(max_width="560px")
@@ -850,20 +991,20 @@ def _(
     | Closing cost | Amount |
     |:---|---:|
     {_rows(result.closing_cost_items)}
-    | **Total closing costs** | **\\${result.closing_costs_total:,.0f}** ({_share:.1%} of price) |
+    | **Total closing costs** | **{money(result.closing_costs_total)}** ({_share:.1%} of price) |
 
     | Prepaid item | Amount |
     |:---|---:|
     {_rows(result.prepaid_items)}
-    | **Total prepaid items** | **\\${result.prepaid_total:,.0f}** |
+    | **Total prepaid items** | **{money(result.prepaid_total)}** |
 
     | Cash at closing | Amount |
     |:---|---:|
-    | Down payment | \\${result.down_payment:,.0f} |
-    | Closing costs | \\${result.closing_costs_total:,.0f} |
-    | Prepaid items | \\${result.prepaid_total:,.0f} |
-    | Moving and setup | \\${result.moving_costs:,.0f} |
-    | **Cash needed at closing** | **\\${result.cash_needed_at_closing:,.0f}** |
+    | Down payment | {money(result.down_payment)} |
+    | Closing costs | {money(result.closing_costs_total)} |
+    | Prepaid items | {money(result.prepaid_total)} |
+    | Moving and setup | {money(result.moving_costs)} |
+    | **Cash needed at closing** | **{money(result.cash_needed_at_closing)}** |
     """),
             mo.accordion({"Closing cost assumptions": _assumptions}),
         ]
@@ -889,10 +1030,10 @@ def _(household: Household, result: Result):
         return [
             f"| **{heading}** | | |",
             *(
-                f"| {label} | \\${amount:,.0f} | {note} |"
+                f"| {label} | {money(amount)} | {note} |"
                 for label, amount, note in rows
             ),
-            f"| **{_label}** | **\\${_amount:,.0f}** | {_note} |",
+            f"| **{_label}** | **{money(_amount)}** | {_note} |",
         ]
 
     _state_and_city = _taxes.state_tax + _taxes.city_tax
@@ -904,6 +1045,7 @@ def _(household: Household, result: Result):
             [
                 ("Gross annual income", _gross, ""),
                 ("401(k) contributions", household.contribution_401k, ""),
+                ("Health insurance premiums", household.health_insurance, ""),
             ],
             ("Total pre-tax deductions", household.pretax_deductions, ""),
         ),
@@ -948,7 +1090,7 @@ def _(household: Household, result: Result):
                 (
                     "NY itemized deduction",
                     _taxes.ny_itemized,
-                    f"standard is \\${NY_MFJ_2026.standard_deduction:,.0f}",
+                    f"standard is {money(NY_MFJ_2026.standard_deduction)}",
                 ),
                 (
                     "NY deduction",
@@ -974,7 +1116,7 @@ def _(household: Household, result: Result):
     if result.points_tax_savings:
         _details.append(
             mo.md(
-                f"One-time tax savings from points (year 1 only, not in the monthly figures): **\\${result.points_tax_savings:,.0f}**"
+                f"One-time tax savings from points (year 1 only, not in the monthly figures): **{money(result.points_tax_savings)}**"
             )
         )
     mo.accordion({"Tax details": mo.vstack(_details)})

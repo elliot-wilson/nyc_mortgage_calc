@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from tax_brackets import bracket_tax
+
 
 @dataclass(frozen=True)
 class FederalSchedule:
@@ -12,14 +14,6 @@ class FederalSchedule:
     salt_phase_down_rate: float  # cap reduction per dollar of MAGI over the threshold
     salt_floor: float  # the cap never drops below this
     mortgage_debt_limit: float  # acquisition debt whose interest is deductible
-
-    @property
-    def floors(self) -> list[float]:
-        return list(self.brackets)
-
-    @property
-    def rates(self) -> list[float]:
-        return list(self.brackets.values())
 
 
 MFJ_2026 = FederalSchedule(
@@ -43,23 +37,10 @@ MFJ_2026 = FederalSchedule(
 )
 
 
-def bracket_tax(taxable_income: float, tax_schedule: FederalSchedule) -> float:
-    floors, rates = tax_schedule.floors, tax_schedule.rates
-    tax = 0.0
-    for i, (floor, rate) in enumerate(zip(floors, rates)):
-        if taxable_income <= floor:
-            break
-        max_subject_within_bracket = (
-            floors[i + 1] if i + 1 < len(floors) else float("inf")
-        )
-        tax += (min(taxable_income, max_subject_within_bracket) - floor) * rate
-    return tax
-
-
 def federal_income_tax(
     taxable_income: float, tax_schedule: FederalSchedule = MFJ_2026
 ) -> float:
-    return bracket_tax(max(taxable_income, 0.0), tax_schedule)
+    return bracket_tax(max(taxable_income, 0.0), tax_schedule.brackets)
 
 
 def salt_deduction_limit(
@@ -81,13 +62,3 @@ def allowed_salt_deduction(
     """state_and_local_taxes_paid: NYS + NYC income tax plus property tax."""
     return min(state_and_local_taxes_paid, salt_deduction_limit(magi, tax_schedule))
 
-
-def deductible_mortgage_interest(
-    interest_paid: float,
-    loan_amount: float,
-    tax_schedule: FederalSchedule = MFJ_2026,
-) -> float:
-    """Interest on debt above the limit isn't deductible, so prorate by the covered share."""
-    if loan_amount <= tax_schedule.mortgage_debt_limit:
-        return interest_paid
-    return interest_paid * tax_schedule.mortgage_debt_limit / loan_amount
