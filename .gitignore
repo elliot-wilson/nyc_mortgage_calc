@@ -11,3 +11,7 @@ wheels/
 
 # marimo session cache
 __marimo__/
+
+# Static site exports
+_site/
+site/

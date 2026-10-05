@@ -1,0 +1,51 @@
+name: Publish to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let an in-progress deployment finish, but skip any queued between it and the latest push.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+
+      - name: Type check
+        run: |
+          uv run --frozen marimo check app.py
+          uv run --frozen pyright
+
+      - name: Export the notebook as a static site
+        run: |
+          uv run --frozen marimo export html-wasm app.py --output _site --mode run
+          # A stock marimo assistant guide that ships with the export assets
+          rm -f _site/CLAUDE.md
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
