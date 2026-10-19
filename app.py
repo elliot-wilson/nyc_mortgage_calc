@@ -899,11 +899,11 @@ def _(
                     "Budget for down payment, closing costs, etc. Excludes any emergency funds."
                 ).style(font_size="0.85rem"),
                 upfront_cash,
-                emergency_fund,
                 mo.md(
                     "Never spent on the purchase, but co-op boards count "
                     "it toward liquidity after closing."
                 ).style(font_size="0.85rem"),
+                emergency_fund,
             ),
             _section("Housing", housing_panel),
             _section(
